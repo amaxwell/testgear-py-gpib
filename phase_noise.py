@@ -1,5 +1,24 @@
 #!/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14
 
+#
+# This will be a moving target until I figure out what I want to do with it. Presently
+# I'm plotting using DataGraph, since it's easy to make plots that look decent. The
+# interface of setting variables in code is kind of lame, though, and I usually forget
+# to update the note field.
+#
+# The logic of decades and the looping methodology is inspired by John Miles KE5FX
+# PN.EXE, which was extremely helpful. http://www.ke5fx.com/gpib/pn.htm
+#
+# There are some differences, notably in recentering (suggested by HP's AN 270-2),
+# and in pulling the cal constants from the analyzer. I also only support the
+# Tek 2756P, because that's what I have, so no need to maintain compatibility with
+# less capable instruments. I strongly suspect this would work as-is with the 494P
+# series and any Tek275x analyzer.
+#
+# http://www.ke5fx.com/gpib/an270-2.pdf
+# http://www.ke5fx.com/HP_PN_seminar.pdf
+# 
+
 from tek2756 import Tektronix2756P        
 
 def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=0, vbw="0"):
