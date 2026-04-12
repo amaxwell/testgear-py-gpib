@@ -18,6 +18,21 @@
 # http://www.ke5fx.com/gpib/an270-2.pdf
 # http://www.ke5fx.com/HP_PN_seminar.pdf
 # 
+# The impetus for this is 1) try and understand phase noise measurement by forcing
+# myself to debug it and 2) avoid using Windows, since I have to run it under VMWare.
+# PN.EXE also doesn't work great with AR488, since AR488 times out on long sweeps (and
+# I suspect the Prologix would fail as well). For posterity (me), here is how I had to
+# configure AR488 to work with PN.EXE, using TeraTerm. DO NOT USE GPIB CONFIGURATOR!
+#
+# ++addr 7
+# ++auto 1
+# ++eoi 1
+# ++eos 2
+# ++read_tmo_ms 32000
+# ++id verstr AR488 GPIB-USB version 6.1 
+# ++savecfg
+# 
+# 
 
 from tek2756 import Tektronix2756P        
 
