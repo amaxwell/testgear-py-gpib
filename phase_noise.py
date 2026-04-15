@@ -69,8 +69,9 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
     
     # list of 2, 3, 4, 5, etc; not a starting frequency
     for current_decade in range(min_decade, max_decade):
-           
-        print("xxxxxxxxxxxxxxx")
+        
+        # separator for decades; can probably disable the log goo at this point   
+        print("xxxxxxxxxxxxxxx BEGIN SWEEP: DECADE %d" % (current_decade))
 
         # 100-1,000, 1,000-10,000, 10,000-100,000
         # decade_start is our offset from the carrier, and it will be a decade wide
@@ -134,6 +135,7 @@ if __name__ == '__main__':
     from math import log10, pow
     import sys
     from datetime import datetime
+    import numpy as np
     
     sa = Tektronix2756P()
     sa.save_state()
@@ -141,24 +143,39 @@ if __name__ == '__main__':
     # TODO: check RFATT, figure out MINATT and MAXPWR, although
     # it's probably too late by the time the user has plugged
     # in the cables.
-    # set up 10 dB/div
     
-    note = "HP 8663A + CTI PDRO oscillator at 4.3 GHz and 100 MHz IF"
-    nominal_carrier = 4300e6
+    # lazy way to make sure we have 10 dB/div, auto resbw, etc
+    sa.reset()
+    
+    note = "HP 8640B at 100 MHz, with PDRO to 4.3 GHz"
+    nominal_carrier = 4320e6
     carrier_level = -5
     retune_carrier = True
     min_offset = 100
     max_offset = 1e6
-    clip = -30
+    clip = -20
     vbw = "0"
+    
+    runs_to_average = 4
+    list_of_runs = []
+    
+    # pn_x is same for all runs; stash the last one here if we're averaging
+    pn_x = None
+    pn_y = None
         
     try:
-        pn_x, pn_y = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+        for idx in range(runs_to_average):
+            print("*** starting run %d of %d" % (idx + 1, runs_to_average))
+            pn_x, pn_y = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+            list_of_runs.append(pn_y)
+            
+        pn_y = np.average(list_of_runs, axis=0) if runs_to_average > 1 else list_of_runs[0]
+        
         output_name = "phase_noise_py.%s.csv" % (datetime.now().strftime("%Y-%m-%d %H%M"))
         with open(output_name, "w") as outf:
             
             # log RFATT before restoring state, since it depends on clip level
-            outf.write("# note: %s\n# nominal_carrier: %f Hz\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
+            outf.write("# note: %s\n# runs averaged: %d\n# nominal_carrier: %f Hz\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, runs_to_average, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
             
             outf.write("f (Hz),ℒ (dBc/Hz)\n")    
         
