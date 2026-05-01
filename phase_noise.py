@@ -136,8 +136,13 @@ if __name__ == '__main__':
     import sys
     from datetime import datetime
     import numpy as np
+    import pyvisa
     
-    sa = Tektronix2756P()
+    ip_address="192.168.2.199", gpib_address=7
+    rm = pyvisa.ResourceManager()
+    rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
+    
+    sa = Tektronix2756P(rsrc)
     sa.save_state()
     
     # TODO: check RFATT, figure out MINATT and MAXPWR, although
@@ -147,16 +152,16 @@ if __name__ == '__main__':
     # lazy way to make sure we have 10 dB/div, auto resbw, etc
     sa.reset()
     
-    note = "HP 8640B at 100 MHz, with PDRO to 4.3 GHz"
-    nominal_carrier = 4320e6
-    carrier_level = -5
+    note = "HP 8663A recap rectifier at 440 MHz"
+    nominal_carrier = 440e6
+    carrier_level = -10
     retune_carrier = True
     min_offset = 100
     max_offset = 1e6
-    clip = -20
+    clip = -30
     vbw = "0"
     
-    runs_to_average = 4
+    runs_to_average = 1
     list_of_runs = []
     
     # pn_x is same for all runs; stash the last one here if we're averaging
