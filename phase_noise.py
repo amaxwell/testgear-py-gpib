@@ -138,7 +138,8 @@ if __name__ == '__main__':
     import numpy as np
     import pyvisa
     
-    ip_address="192.168.2.199", gpib_address=7
+    ip_address="192.168.2.199"
+    gpib_address=7
     rm = pyvisa.ResourceManager()
     rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
     

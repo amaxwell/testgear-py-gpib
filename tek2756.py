@@ -44,11 +44,18 @@ class Filter(object):
 
 class Tektronix2756P(object):
     
-    def __init__(self, pyvisa_resource=tek2756):
+    def __init__(self, pyvisa_resource):
+        """
+        Example of how to create the pyvisa_resource:
+        ip_address="192.168.2.199"
+        gpib_address=7
+        rm = pyvisa.ResourceManager()
+        rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
+        """
         super(Tektronix2756P, self).__init__()
         self._state = []
         self._filters = None
-        self._tek2756 = tek2756
+        self._tek2756 = pyvisa_resource
         self._tek2756.timeout = None
         
         # shouldn't use termchar since the rear switches are set to use EOI
@@ -209,7 +216,8 @@ class Tektronix2756P(object):
 
 if __name__ == '__main__':
         
-    ip_address="192.168.2.199", gpib_address=7
+    ip_address="192.168.2.199"
+    gpib_address=7
     rm = pyvisa.ResourceManager()
     rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
     
