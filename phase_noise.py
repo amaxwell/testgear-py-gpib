@@ -51,6 +51,9 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
     sa.set_reflevel(carrier_level)
     sa.set_vbw(vbw)
     
+    # initialize to nominal level in case retune_carrier is False
+    measured_carrier_level = carrier_level
+    
     if clip and carrier_level < 0:
         sa.set_reflevel(carrier_level + clip)
         print("Clipping signal with ref level:", carrier_level + clip)
@@ -82,7 +85,7 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
         sa.set_rbw(rbw)
    
         print("decade %s Hz to %s Hz offset" % (decade_start, decade_start + total_span))
-        print("RBW: %s Hz, Span/Div: %s Hz" % (rbw, total_span / 10))
+        print("RBW: %d Hz, Span/Div: %d Hz" % (rbw, total_span / 10))
     
         # set_span requires span/div
         sa.set_span(total_span / 10, units="HZ")
@@ -126,7 +129,7 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
         # in case retune_carrier is true.
         for sx, sy in zip(scaled_x, scaled_y):
             pn_x.append(sx - carrier)
-            pn_y.append(sy - carrier_level + f_corr + Cn)
+            pn_y.append(sy - measured_carrier_level + f_corr + Cn)
     
     return pn_x, pn_y
 
@@ -138,8 +141,8 @@ if __name__ == '__main__':
     import numpy as np
     import pyvisa
     
-    ip_address="192.168.2.199"
-    gpib_address=7
+    ip_address = "192.168.2.199"
+    gpib_address = 7
     rm = pyvisa.ResourceManager()
     rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
     
@@ -153,8 +156,8 @@ if __name__ == '__main__':
     # lazy way to make sure we have 10 dB/div, auto resbw, etc
     sa.reset()
     
-    note = "HP 8663A recap rectifier at 440 MHz"
-    nominal_carrier = 440e6
+    note = "8863A 100 MHz to PDRO after 2756P calibration"
+    nominal_carrier = 4200e6 #4199.978e6 #4200e6
     carrier_level = -10
     retune_carrier = True
     min_offset = 100
@@ -162,7 +165,7 @@ if __name__ == '__main__':
     clip = -30
     vbw = "0"
     
-    runs_to_average = 1
+    runs_to_average = 4
     list_of_runs = []
     
     # pn_x is same for all runs; stash the last one here if we're averaging
