@@ -64,11 +64,11 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
     pn_x = []
     pn_y = []
     
-    carrier = nominal_carrier
+    tuned_carrier = nominal_carrier
 
     # center frequency; we start measuring at the offset, not at the peak,
     # so we tune to the right of the carrier
-    tune_freq = carrier + min_offset
+    tune_freq = tuned_carrier + min_offset
     
     # FIXME: use measured?
     sa.set_reflevel(carrier_level)
@@ -116,19 +116,20 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
         # jog frequency by half the total span (starts at carrier + decade_start)
         # check carrier and retune each decade in case of slow drift
         if retune_carrier:
-            carrier, measured_carrier_level = sa.carrier_near(carrier)
+            tuned_carrier, measured_carrier_level = sa.carrier_near(tuned_carrier)
+            sys.stderr.write("Found carrier %.2f dBm at %d Hz\n" % (measured_carrier_level, tuned_carrier))
         
             # hit this with the HP 8620C; drifted so far I couldn't find it
-            assert abs(abs(carrier_level) - abs(measured_carrier_level)) < 10, "*** ERROR *** no carrier detected within 10 dB of nominal value"
+            assert abs(abs(carrier_level) - abs(measured_carrier_level)) < 10, "*** ERROR *** no carrier detected within 10 dB of nominal %d dBm near %d" % (carrier_level, tuned_carrier)
             
             # warn in case of drift; tried 10 Hz and hit that immediately with
             # an old Tek 067-0532-00 leveled sine generator
-            if abs(carrier - nominal_carrier) > total_span / 4:
-                sys.stderr.write("*** WARNING *** Carrier drifted more than %d Hz from nominal: %d\n" % (total_span/4, carrier))
+            if abs(tuned_carrier - nominal_carrier) > total_span / 4:
+                sys.stderr.write("*** WARNING *** Carrier drifted more than %d Hz from nominal: %d\n" % (total_span/4, tuned_carrier))
         
-        center_frequency = carrier + decade_start + total_span/2
+        center_frequency = tuned_carrier + decade_start + total_span/2
         sa.set_center_frequency(center_frequency, units="HZ")
-        print("center at %s for carrier at %s" % (center_frequency, carrier))
+        print("center at %s for carrier at %s" % (center_frequency, tuned_carrier))
     
         scaled_x, scaled_y = sa.curve()
     
@@ -152,12 +153,13 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
         # Compute frequency offset relative to most recently measured carrier
         # in case retune_carrier is true.
         for sx, sy in zip(scaled_x, scaled_y):
-            pn_x.append(sx - carrier)
+            pn_x.append(sx - tuned_carrier)
             pn_y.append(sy - measured_carrier_level + f_corr + Cn)
     
+    # get rid of duplicate frequency in the offset regions
     pn_x, pn_y = average_at_duplicate_frequencies(pn_x, pn_y)
     
-    return pn_x, pn_y
+    return pn_x, pn_y, tuned_carrier
 
 def noise_floor():
     
@@ -201,7 +203,7 @@ def noise_floor():
     try:
         for idx in range(runs_to_average):
             print("*** starting run %d of %d" % (idx + 1, runs_to_average))
-            pn_x, pn_y = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+            pn_x, pn_y, ignored = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
             # since we lied about carrier_level for RF noise floor to raise the
             # trace up, push it back down here to save a postprocessing step
             pn_y = [y + carrier_level for y in pn_y]
@@ -234,8 +236,8 @@ def noise_floor():
 
 if __name__ == '__main__':
     
-    noise_floor()
-    exit(0)
+    #noise_floor()
+    #exit(0)
     
     
     ip_address = "192.168.2.199"
@@ -259,8 +261,9 @@ if __name__ == '__main__':
     # set it, but apparently I had that backwards.
     sa.set_cursor_avg()
     
-    note = "8863A 100 MHz to PDRO after 2756P calibration"
+    note = "HP 8863A 100 MHz to PDRO after 2756P calibration"
     nominal_carrier = 4200e6 #4199.978e6 #4200e6
+    last_nominal_carrier = nominal_carrier
     carrier_level = -10
     retune_carrier = True
     min_offset = 100
@@ -268,17 +271,18 @@ if __name__ == '__main__':
     clip = -30
     vbw = "0"
     
-    runs_to_average = 4
+    runs_to_average = 1
     list_of_runs = []
     
     # pn_x is same for all runs; stash the last one here if we're averaging
     pn_x = None
     pn_y = None
+    
         
     try:
         for idx in range(runs_to_average):
             print("*** starting run %d of %d" % (idx + 1, runs_to_average))
-            pn_x, pn_y = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+            pn_x, pn_y, last_nominal_carrier = scaled_phase_noise(sa, last_nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
             list_of_runs.append(pn_y)
             
         pn_y = np.average(list_of_runs, axis=0) if runs_to_average > 1 else list_of_runs[0]
