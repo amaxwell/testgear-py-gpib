@@ -117,6 +117,12 @@ class Tektronix2756P(object):
     def rfatt(self):
         return self._tek2756.query("RFATT?").strip()
         
+    def set_time_auto(self):
+        self._tek2756.write("TIME AUTO")
+        
+    def set_cursor_avg(self):
+        self._tek2756.write("CRSOR AVG")
+        
     def filter(self, frequency):
         
         if self._filters is None:

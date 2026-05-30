@@ -34,7 +34,30 @@
 # 
 # 
 
+from math import log10, pow
+import sys
+from datetime import datetime
+import numpy as np
+import pyvisa
+
 from tek2756 import Tektronix2756P        
+
+def average_at_duplicate_frequencies(freq, mag):
+    
+    freq = np.array(freq)
+    mag = np.array(mag)
+    
+    m = np.zeros_like(freq, dtype=bool)
+    m[np.unique(freq, return_index=True)[1]] = True
+    indexes = np.where(~m)[0]
+    averages = (mag[indexes] + mag[indexes-1])/2
+    
+    mag[indexes] = averages
+    mag[indexes-1] = averages
+    
+    m[np.unique(freq, return_index=True)[1]] = True
+    
+    return freq[m], mag[m]
 
 def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=0, vbw="0"):
     
@@ -117,6 +140,7 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
         # which matches the HP PN seminar notes. Had the sign wrong here initially and
         # got super confused because the values are so much larger than the ones in pn.cpp.
         f_corr = -1 * sa.filter(rbw).noise_bandwidth_F
+        #f_corr = -10 * log10(1.2 * rbw)
         print("F corr dB:", f_corr)
     
         # FIXME check this; HP default value. Probably reasonable, given how close
@@ -131,15 +155,11 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
             pn_x.append(sx - carrier)
             pn_y.append(sy - measured_carrier_level + f_corr + Cn)
     
+    pn_x, pn_y = average_at_duplicate_frequencies(pn_x, pn_y)
+    
     return pn_x, pn_y
 
-if __name__ == '__main__':
-    
-    from math import log10, pow
-    import sys
-    from datetime import datetime
-    import numpy as np
-    import pyvisa
+def noise_floor():
     
     ip_address = "192.168.2.199"
     gpib_address = 7
@@ -155,6 +175,89 @@ if __name__ == '__main__':
     
     # lazy way to make sure we have 10 dB/div, auto resbw, etc
     sa.reset()
+    
+    sa.set_time_auto()
+    
+    # this is a key setup step of PN.EXE; I thought reset would
+    # set it, but apparently I had that backwards.
+    sa.set_cursor_avg()
+    
+    note = "RF noise floor"
+    nominal_carrier = 100e6 #100e6
+    carrier_level = -80
+    retune_carrier = False
+    min_offset = 100
+    max_offset = 1e6
+    clip = 0
+    vbw = "0"
+    
+    runs_to_average = 1
+    list_of_runs = []
+    
+    # pn_x is same for all runs; stash the last one here if we're averaging
+    pn_x = None
+    pn_y = None
+        
+    try:
+        for idx in range(runs_to_average):
+            print("*** starting run %d of %d" % (idx + 1, runs_to_average))
+            pn_x, pn_y = scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+            # since we lied about carrier_level for RF noise floor to raise the
+            # trace up, push it back down here to save a postprocessing step
+            pn_y = [y + carrier_level for y in pn_y]
+            list_of_runs.append(pn_y)
+            
+        pn_y = np.average(list_of_runs, axis=0) if runs_to_average > 1 else list_of_runs[0]
+        
+        output_name = "phase_noise_py.%s.csv" % (datetime.now().strftime("%Y-%m-%d %H%M"))
+        with open(output_name, "w") as outf:
+            
+            # log RFATT before restoring state, since it depends on clip level
+            outf.write("# note: %s\n# runs averaged: %d\n# nominal_carrier: %f Hz\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, runs_to_average, nominal_carrier, 0, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
+            
+            outf.write("f (Hz),ℒ (dBc/Hz)\n")    
+        
+            # sort the list by frequency on writing, since they are
+            # overlapping
+            # https://www.reddit.com/r/learnprogramming/comments/91bl6v/python_sort_multiple_lists_based_on_the_sorting/
+         
+            for x, y in sorted(zip(pn_x, pn_y)):
+                outf.write("%d,%.2f\n" % (x,y))
+                
+    except Exception as e:
+        sys.stderr.write("%s\n" % (e))
+    finally:
+        # main reason to factor code out was to run it in an exception handler and
+        # reset state in case of an error
+        print("restoring state")
+        sa.restore_state()
+
+if __name__ == '__main__':
+    
+    noise_floor()
+    exit(0)
+    
+    
+    ip_address = "192.168.2.199"
+    gpib_address = 7
+    rm = pyvisa.ResourceManager()
+    rsrc = rm.open_resource("TCPIP::%s::gpib0,%d::INSTR" % (ip_address, gpib_address))
+    
+    sa = Tektronix2756P(rsrc)
+    sa.save_state()
+    
+    # TODO: check RFATT, figure out MINATT and MAXPWR, although
+    # it's probably too late by the time the user has plugged
+    # in the cables.
+    
+    # lazy way to make sure we have 10 dB/div, auto resbw, etc
+    sa.reset()
+    
+    sa.set_time_auto()
+    
+    # this is a key setup step of PN.EXE; I thought reset would
+    # set it, but apparently I had that backwards.
+    sa.set_cursor_avg()
     
     note = "8863A 100 MHz to PDRO after 2756P calibration"
     nominal_carrier = 4200e6 #4199.978e6 #4200e6
