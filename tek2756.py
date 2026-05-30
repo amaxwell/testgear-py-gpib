@@ -204,6 +204,7 @@ class Tektronix2756P(object):
          """
         self.save_state()
         
+        self.reset()
         self.set_center_frequency(frequency)
         self.set_reflevel("+30 DBM")
         self.set_span(10e3)
@@ -211,7 +212,8 @@ class Tektronix2756P(object):
         
         # COUNT OFF,+9.9999995E+7
         # zooming in on this doesn't improve the count
-        count_desc = self._tek2756.query("SIGSWP;SIGSWP;WAIT;FIBIG;TOPSIG;COUNT;COUNT?")
+        # have to center before counting, and use TOPSIG to set the reflevel to the FMAX peak
+        count_desc = self._tek2756.query("SIGSWP;SIGSWP;WAIT;FMAX;CENSIG;TOPSIG;COUNT;COUNT?")
         level = self.reflevel()
         count = float(count_desc.split(",")[-1])
         
@@ -230,12 +232,9 @@ if __name__ == '__main__':
     sa = Tektronix2756P(rsrc)
     sa.save_state()
     
-    sa.set_center_frequency(100, "MHZ")
+    sa.set_center_frequency(4200, "MHZ")
     
-    min_offset = 100
-    assert min_offset >= 100, "starting offset from carrier must be at least 100 Hz"
-    max_offset = 1e6
-    nominal_carrier = 100e6
+    nominal_carrier = 4200e6
     carrier = nominal_carrier
     
     carrier, carrier_level = sa.carrier_near(carrier)
