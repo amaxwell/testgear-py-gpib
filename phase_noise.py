@@ -40,6 +40,7 @@ from datetime import datetime
 import numpy as np
 import pyvisa
 
+from savitzky_golay import savitzky_golay
 from tek2756 import Tektronix2756P        
 
 def average_at_duplicate_frequencies(freq, mag):
@@ -157,9 +158,17 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
             pn_y.append(sy - measured_carrier_level + f_corr + Cn)
     
     # get rid of duplicate frequency in the offset regions
-    pn_x, pn_y = average_at_duplicate_frequencies(pn_x, pn_y)
+    # pn_x, pn_y = average_at_duplicate_frequencies(pn_x, pn_y)
     
     return pn_x, pn_y, tuned_carrier
+
+def box_smooth(x, y, box_length=101):
+    
+    box = np.ones(box_length) / box_length
+    out_x = np.convolve(x, box, mode="valid")
+    out_y = np.convolve(y, box, mode="valid")
+    
+    return out_x, out_y
 
 def noise_floor():
     
@@ -217,14 +226,16 @@ def noise_floor():
             # log RFATT before restoring state, since it depends on clip level
             outf.write("# note: %s\n# runs averaged: %d\n# nominal_carrier: %f Hz\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, runs_to_average, nominal_carrier, 0, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
             
-            outf.write("f (Hz),ℒ (dBc/Hz)\n")    
+            outf.write("f (Hz),ℒ (dBc/Hz),f_smooth (Hz),ℒ_smooth (dBc/Hz)\n") 
+
+            # sort the list by frequency on writing, since we have overlaps https://www.reddit.com/r/learnprogramming/comments/91bl6v/python_sort_multiple_lists_based_on_the_sorting/
+            pn_x, pn_y = zip(*sorted(zip(pn_x, pn_y)))
+            #pn_x_smooth, pn_y_smooth = box_smooth(pn_x, pn_y, 31)   
+            pn_x_smooth = savitzky_golay(np.array(pn_x), 57, 3)
+            pn_y_smooth = savitzky_golay(np.array(pn_y), 57, 3)
         
-            # sort the list by frequency on writing, since they are
-            # overlapping
-            # https://www.reddit.com/r/learnprogramming/comments/91bl6v/python_sort_multiple_lists_based_on_the_sorting/
-         
-            for x, y in sorted(zip(pn_x, pn_y)):
-                outf.write("%d,%.2f\n" % (x,y))
+            for x, y, xs, ys in zip(pn_x, pn_y, pn_x_smooth, pn_y_smooth):
+                outf.write("%d,%.2f,%.2f,%.2f\n" % (x,y,xs,ys))
                 
     except Exception as e:
         sys.stderr.write("%s\n" % (e))
@@ -261,28 +272,42 @@ if __name__ == '__main__':
     # set it, but apparently I had that backwards.
     sa.set_cursor_avg()
     
-    note = "HP 8863A 100 MHz to PDRO after 2756P calibration"
-    nominal_carrier = 4200e6 #4199.978e6 #4200e6
-    last_nominal_carrier = nominal_carrier
-    carrier_level = -10
+    note = "HP 8640B + PDRO at 100 MHz after 2756P calibration"
+    
+    # should not change; always the base carrier, so we can scale it by external_multiplier
+    nominal_carrier = 100e6 
+    
+    # this will set the starting center frequency, so should be close to accurate
+    external_multiplier = 42
     retune_carrier = True
+    carrier_level = -5    
+    
+    # this will update as we take measurements (and will be actual center frequency)
+    last_nominal_carrier = nominal_carrier * external_multiplier
+    
     min_offset = 100
     max_offset = 1e6
     clip = -30
     vbw = "0"
     
-    runs_to_average = 1
+    runs_to_average = 4
     list_of_runs = []
     
     # pn_x is same for all runs; stash the last one here if we're averaging
     pn_x = None
-    pn_y = None
-    
+    pn_y = None  
         
     try:
         for idx in range(runs_to_average):
             print("*** starting run %d of %d" % (idx + 1, runs_to_average))
             pn_x, pn_y, last_nominal_carrier = scaled_phase_noise(sa, last_nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=clip, vbw=vbw)
+            
+            # scale if using external multiplier, since I got tired of doing this in DataGraph
+            if external_multiplier > 1:
+                multiplier_corr = - 20 * log10(last_nominal_carrier / nominal_carrier)
+                sys.stderr.write("*** EXTERNAL MULTIPLIER *** adjusting by %.1f dB\n" % (multiplier_corr))
+                pn_y = np.array(pn_y) + multiplier_corr
+                
             list_of_runs.append(pn_y)
             
         pn_y = np.average(list_of_runs, axis=0) if runs_to_average > 1 else list_of_runs[0]
@@ -291,16 +316,18 @@ if __name__ == '__main__':
         with open(output_name, "w") as outf:
             
             # log RFATT before restoring state, since it depends on clip level
-            outf.write("# note: %s\n# runs averaged: %d\n# nominal_carrier: %f Hz\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, runs_to_average, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
+            outf.write("# note: %s\n# runs averaged: %d\n# nominal_carrier: %f Hz\n# measured carrier: %f Hz\n# external_multiplier: %d\n# carrier_level: %d dBm\n# retune_carrier: %d\n# min_offset: %d Hz\n# max_offset: %d Hz\n# clip: %d\n# vbw: %s\n# rfatt: %s dB\n#\n" % (note, runs_to_average, nominal_carrier, last_nominal_carrier, external_multiplier, carrier_level, retune_carrier, min_offset, max_offset, clip, vbw, sa.rfatt()))
             
-            outf.write("f (Hz),ℒ (dBc/Hz)\n")    
+            outf.write("f (Hz),ℒ (dBc/Hz),f_smooth (Hz),ℒ_smooth (dBc/Hz)\n") 
+
+            # sort the list by frequency on writing, since we have overlaps https://www.reddit.com/r/learnprogramming/comments/91bl6v/python_sort_multiple_lists_based_on_the_sorting/
+            pn_x, pn_y = zip(*sorted(zip(pn_x, pn_y)))
+            #pn_x_smooth, pn_y_smooth = box_smooth(pn_x, pn_y, 31)   
+            pn_x_smooth = savitzky_golay(np.array(pn_x), 51, 3)
+            pn_y_smooth = savitzky_golay(np.array(pn_y), 51, 3)
         
-            # sort the list by frequency on writing, since they are
-            # overlapping
-            # https://www.reddit.com/r/learnprogramming/comments/91bl6v/python_sort_multiple_lists_based_on_the_sorting/
-         
-            for x, y in sorted(zip(pn_x, pn_y)):
-                outf.write("%d,%.2f\n" % (x,y))
+            for x, y, xs, ys in zip(pn_x, pn_y, pn_x_smooth, pn_y_smooth):
+                outf.write("%d,%.2f,%.2f,%.2f\n" % (x,y,xs,ys))
                 
     except Exception as e:
         sys.stderr.write("%s\n" % (e))
