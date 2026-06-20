@@ -43,6 +43,11 @@ import pyvisa
 from savitzky_golay import savitzky_golay
 from tek2756 import Tektronix2756P        
 
+# 
+# Was playing with this as a way to process the overlap
+# regions before smoothing, since some frequencies have
+# two values.
+#
 def average_at_duplicate_frequencies(freq, mag):
     
     freq = np.array(freq)
@@ -60,6 +65,11 @@ def average_at_duplicate_frequencies(freq, mag):
     
     return freq[m], mag[m]
 
+#
+# This is the workhorse function, but it's really just a wrapper around CURVE
+# that handles the appropriate power and frequency scaling, after breaking the
+# frequency range up into decades and adjusting span and RBW appropriately.
+#
 def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_offset, max_offset, clip=0, vbw="0"):
     
     pn_x = []
@@ -162,6 +172,9 @@ def scaled_phase_noise(sa, nominal_carrier, carrier_level, retune_carrier, min_o
     
     return pn_x, pn_y, tuned_carrier
 
+# 
+# Tried this before settling on Savitzky-Golay
+# 
 def box_smooth(x, y, box_length=101):
     
     box = np.ones(box_length) / box_length
